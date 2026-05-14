@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include <kairos/event_scheduler.hpp>
-#include <kairos/input_event.hpp>
-#include <kairos/rt_control_thread.hpp>
-#include <kairos/spsc_queue.hpp>
+#include <nomos/rt/event_scheduler.hpp>
+#include <nomos/rt/input_event.hpp>
+#include <nomos/rt/rt_control_thread.hpp>
+#include <nomos/rt/spsc_queue.hpp>
+
+#include "modulator_engine.hpp"
 
 #include "audio_device.hpp"
 #include "link_peer.hpp"
@@ -15,9 +17,11 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <cstdlib>
 #include <iostream>
+#include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
@@ -94,7 +98,7 @@ int main(int argc, char *argv[]) {
   }
 
   if (list_audio_devs) {
-    kairos::audio_device::list_devices();
+    nomos::rt::audio_device::list_devices();
     return EXIT_SUCCESS;
   }
 
@@ -108,31 +112,36 @@ int main(int argc, char *argv[]) {
   // ipc_in_queue: note-on / note-off / midi-in from IPC; dispatched to MIDI hw.
   // hw_midi_in_queue: hardware MIDI input translated to clap events by midi_io.
   // osc_in_queue: OSC-driven note events from the osc_server.
-  kairos::param_queue param_queue;
-  kairos::input_event_queue ipc_in_queue;
-  kairos::input_event_queue hw_midi_in_queue;
-  kairos::input_event_queue osc_in_queue;
+  nomos::rt::param_queue param_queue;
+  nomos::rt::input_event_queue ipc_in_queue;
+  nomos::rt::input_event_queue hw_midi_in_queue;
+  nomos::rt::input_event_queue osc_in_queue;
 
   // Beat scheduler — control thread pushes to staging; event thread ticks.
-  kairos::event_scheduler scheduler;
+  nomos::rt::event_scheduler scheduler;
+
+  // RT modulator engine — autonomous modulators initiated via IPC, run at
+  // event-loop tick rate.
+  nomos::rt::modulator_engine mod_engine;
 
   // Control thread — IPC socket, session, and common cljseq-rt message
   // dispatch.
-  kairos::rt_control_thread ctrl{kairos::rt_control_thread::config{
+  nomos::rt::rt_control_thread ctrl{nomos::rt::rt_control_thread::config{
                                      .socket_path = socket_path,
                                      .db_path = db_path,
                                      .sched_staging = &scheduler.staging(),
+                                     .mod_engine = &mod_engine,
                                  },
                                  param_queue, ipc_in_queue};
   ctrl.start();
 
   // Link peer — beat-sync authority.
-  kairos::link_peer link{initial_bpm};
+  nomos::rt::link_peer link{initial_bpm};
   link.enable(true);
 
   // MIDI I/O.
-  kairos::midi_io midi;
-  kairos::midi_io::list_ports();
+  nomos::rt::midi_io midi;
+  nomos::rt::midi_io::list_ports();
   if (midi_port >= 0)
     midi.open_port(static_cast<unsigned int>(midi_port));
   if (midi_in_port >= 0)
@@ -140,7 +149,7 @@ int main(int argc, char *argv[]) {
                          hw_midi_in_queue);
 
   // OSC server.
-  kairos::osc_server osc{osc_port, osc_in_queue};
+  nomos::rt::osc_server osc{osc_port, osc_in_queue};
   osc.start();
 
   // Audio device — opened at a small buffer size purely for the hardware
@@ -148,9 +157,9 @@ int main(int argc, char *argv[]) {
   // interface is present (e.g. ES-9, Scarlett) this becomes the most stable
   // timestamp source in the room and aion can assert Link authority.  The
   // callback does no audio processing — it just clocks the hardware interrupt.
-  kairos::audio_device audio_dev;
+  nomos::rt::audio_device audio_dev;
   if (!no_audio) {
-    kairos::audio_device_config audio_cfg{
+    nomos::rt::audio_device_config audio_cfg{
         .device_id = audio_device_id,
         .out_channels = 2,
         .in_channels = 0,
@@ -187,7 +196,7 @@ int main(int argc, char *argv[]) {
   //
   // Sleep 250µs when all queues are idle — low latency without busy-spinning.
   std::thread event_thread{[&]() {
-    auto dispatch_event = [&](const kairos::clap_event_union &ev) {
+    auto dispatch_event = [&](const nomos::rt::clap_event_union &ev) {
       switch (ev.header.type) {
       case CLAP_EVENT_NOTE_ON: {
         const auto vel = static_cast<uint8_t>(
@@ -208,15 +217,31 @@ int main(int argc, char *argv[]) {
       }
     };
 
+    int64_t last_tick_n = -1;
+
     while (g_running.load(std::memory_order_relaxed)) {
       bool did_work = false;
 
       // Tick beat-scheduled events into ipc_in_queue before draining it.
-      const double beat = link.beat_at_time(link.now());
-      scheduler.tick(beat, [&](const kairos::clap_event_union &ev) {
+      const double  beat   = link.beat_at_time(link.now());
+      const int64_t tick_n = static_cast<int64_t>(std::floor(beat * 24.0));
+      if (tick_n > last_tick_n) {
+        last_tick_n             = tick_n;
+        const std::string frame = "{:beat " + std::to_string(beat) +
+                                  " :tick-n " + std::to_string(tick_n) + "}";
+        ctrl.push_frame(nomos::rt::ipc::msg_tick, frame);
+        midi.realtime(0xF8);
+        did_work = true;
+      }
+      scheduler.tick(beat, [&](const nomos::rt::clap_event_union &ev) {
         ipc_in_queue.push(ev);
         did_work = true;
       });
+
+      // Tick RT modulators at block rate.  Discard output for now — routing
+      // to CLAP params or MIDI CC is a future layer.
+      const float tick_rate_hz = static_cast<float>(sample_rate) / static_cast<float>(buffer_frames);
+      mod_engine.tick(beat, tick_rate_hz, nullptr);
 
       while (auto ev = ipc_in_queue.pop()) {
         dispatch_event(*ev);

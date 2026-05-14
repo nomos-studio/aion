@@ -3,8 +3,8 @@ cmake_minimum_required(VERSION 3.20)
 
 project(aion
     VERSION 0.1.0
-    DESCRIPTION "aion — cljseq-rt session substrate: Link peer, MIDI/OSC, txlog"
-    HOMEPAGE_URL "https://github.com/cljseq/aion"
+    DESCRIPTION "aion — nomos-rt session substrate: Link peer, MIDI/OSC, txlog"
+    HOMEPAGE_URL "https://github.com/nomos-studio/aion"
     LANGUAGES C CXX)
 
 include(FetchContent)
@@ -19,26 +19,22 @@ set(FETCHCONTENT_UPDATES_DISCONNECTED ON CACHE BOOL
 option(AION_BUILD_TESTS "Build aion unit tests" OFF)
 
 # ---------------------------------------------------------------------------
-# kairos — fetched for cljseq-rt only; CLAP layer is not needed.
+# nomos-rt — shared C++ runtime substrate.
 #
-# To use a local kairos checkout (avoids network and speeds up iteration):
-#   cmake -DKAIROS_DIR=/path/to/kairos ...
+# To use a local checkout (avoids network and speeds up iteration):
+#   cmake -DNOMOS_RT_DIR=/path/to/nomos-rt ...
 # ---------------------------------------------------------------------------
 
-set(KAIROS_BUILD_CORE       OFF CACHE BOOL "" FORCE)
-set(KAIROS_BUILD_EXECUTABLE OFF CACHE BOOL "" FORCE)
-set(KAIROS_BUILD_TESTS      OFF CACHE BOOL "" FORCE)
-set(KAIROS_WASM_BRIDGE      OFF CACHE BOOL "" FORCE)
-
-if(DEFINED KAIROS_DIR)
-    FetchContent_Declare(kairos SOURCE_DIR "${KAIROS_DIR}")
+if(DEFINED NOMOS_RT_DIR)
+    FetchContent_Declare(nomos-rt SOURCE_DIR "${NOMOS_RT_DIR}")
 else()
-    FetchContent_Declare(kairos
-        GIT_REPOSITORY https://github.com/cljseq/kairos.git
+    FetchContent_Declare(nomos-rt
+        GIT_REPOSITORY https://github.com/nomos-studio/nomos-rt.git
         GIT_TAG        main
         GIT_SHALLOW    TRUE)
 endif()
-FetchContent_MakeAvailable(kairos)
+set(NOMOS_RT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(nomos-rt)
 
 # ---------------------------------------------------------------------------
 # aion executable
@@ -49,12 +45,12 @@ add_executable(aion
     src/version.cpp
 )
 
-# cljseq::rt     — public kairos headers + all runtime libs (Link, RtMidi, etc.)
-# cljseq::rt-exe-headers — exposes kairos src/ headers: link_peer, midi_io,
-#                          osc_server, audio_device (all GPL-2.0-or-later)
+# nomos::rt          — public headers + all runtime libs (Link, RtMidi, etc.)
+# nomos::rt-exe-headers — exposes nomos-rt src/ headers: link_peer, midi_io,
+#                         osc_server, audio_device (all GPL-2.0-or-later)
 target_link_libraries(aion PRIVATE
-    cljseq::rt
-    cljseq::rt-exe-headers
+    nomos::rt
+    nomos::rt-exe-headers
 )
 
 set_target_properties(aion PROPERTIES
