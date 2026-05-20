@@ -5,7 +5,7 @@
 #include <nomos/rt/rt_control_thread.hpp>
 #include <nomos/rt/spsc_queue.hpp>
 
-#include "modulator_engine.hpp"
+#include <nomos/rt/modulator_engine.hpp>
 
 #include "audio_device.hpp"
 #include "link_peer.hpp"
@@ -225,10 +225,24 @@ int main(int argc, char *argv[]) {
       // Tick beat-scheduled events into ipc_in_queue before draining it.
       const double  beat   = link.beat_at_time(link.now());
       const int64_t tick_n = static_cast<int64_t>(std::floor(beat * 24.0));
+      // Tick RT modulators at block rate; capture outputs for MSG-TICK payload.
+      const float tick_rate_hz = static_cast<float>(sample_rate) / static_cast<float>(buffer_frames);
+      std::string mods_edn;
+      mod_engine.tick(beat, tick_rate_hz,
+          [&](const std::string& id, const nomos::rt::modulator_output& out) {
+              mods_edn += " :" + id + " {:cv " + std::to_string(out.cv) +
+                          " :aux "   + std::to_string(out.aux)   +
+                          " :gate "  + (out.gate  ? "true" : "false") +
+                          " :gate2 " + (out.gate2 ? "true" : "false") + "}";
+          });
+
       if (tick_n > last_tick_n) {
-        last_tick_n             = tick_n;
-        const std::string frame = "{:beat " + std::to_string(beat) +
-                                  " :tick-n " + std::to_string(tick_n) + "}";
+        last_tick_n = tick_n;
+        std::string frame = "{:beat " + std::to_string(beat) +
+                            " :tick-n " + std::to_string(tick_n);
+        if (!mods_edn.empty())
+          frame += " :mods {" + mods_edn + "}";
+        frame += "}";
         ctrl.push_frame(nomos::rt::ipc::msg_tick, frame);
         midi.realtime(0xF8);
         did_work = true;
@@ -237,11 +251,6 @@ int main(int argc, char *argv[]) {
         ipc_in_queue.push(ev);
         did_work = true;
       });
-
-      // Tick RT modulators at block rate.  Discard output for now — routing
-      // to CLAP params or MIDI CC is a future layer.
-      const float tick_rate_hz = static_cast<float>(sample_rate) / static_cast<float>(buffer_frames);
-      mod_engine.tick(beat, tick_rate_hz, nullptr);
 
       while (auto ev = ipc_in_queue.pop()) {
         dispatch_event(*ev);
