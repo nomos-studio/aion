@@ -33,8 +33,8 @@
 #include <nomos/rt/abstract_modulator.hpp>
 #include <nomos/rt/input_event.hpp>
 
-#include "midi_io.hpp"
-
+#include <edn/builtins.hpp>
+#include <edn/parser.hpp>
 #include <edn/value.hpp>
 
 #include <clap/events.h>
@@ -65,18 +65,26 @@ struct ModRoute {
     float       offset{0.0f};
 };
 
+// Concept satisfied by nomos::rt::midi_io and by test stubs:
+//   sink.note_on(uint8_t ch, uint8_t note, uint8_t vel)
+//   sink.note_off(uint8_t ch, uint8_t note)
+//   sink.cc(uint8_t ch, uint8_t cc_num, uint8_t val)
+//   sink.send(const std::vector<uint8_t>&)
+
 class RoutingMatrix {
   public:
-    // Route a CLAP event from src to MIDI output.
+    // Route a CLAP event from src through the matrix to Sink.
     // Called from the event thread — reads midi_routes_ under lock.
+    // Sink must satisfy the midi sink concept above.
+    template<typename Sink>
     void route_event(const nomos::rt::clap_event_union& ev,
                      MidiRoute::Source src,
-                     nomos::rt::midi_io& midi) const {
+                     Sink& sink) const {
         std::lock_guard<std::mutex> lock(mutex_);
 
         if (midi_routes_.empty()) {
             // Default: pass everything through.
-            dispatch(ev, -1, 0, midi);
+            dispatch(ev, -1, 0, sink);
             return;
         }
 
@@ -84,15 +92,17 @@ class RoutingMatrix {
             if (r.src != src) continue;
             const int ev_ch = note_channel(ev);
             if (r.src_ch != -1 && ev_ch != -1 && r.src_ch != ev_ch) continue;
-            dispatch(ev, r.dst_ch, r.xpose, midi);
+            dispatch(ev, r.dst_ch, r.xpose, sink);
         }
     }
 
     // Route modulator outputs to MIDI CC.
     // Called from the event thread each tick.
+    // Sink must satisfy the midi sink concept above.
+    template<typename Sink>
     void route_modulator(const std::string& id,
                          const nomos::rt::modulator_output& out,
-                         nomos::rt::midi_io& midi) {
+                         Sink& sink) {
         std::lock_guard<std::mutex> lock(mutex_);
         for (const auto& r : mod_routes_) {
             if (r.id != id) continue;
@@ -105,7 +115,7 @@ class RoutingMatrix {
             if (it != last_cc_.end() && it->second == val) continue;
             last_cc_[key] = val;
 
-            midi.cc(static_cast<uint8_t>(r.ch + 1), r.cc, val);
+            sink.cc(static_cast<uint8_t>(r.ch + 1), r.cc, val);
         }
     }
 
@@ -175,28 +185,29 @@ class RoutingMatrix {
         }
     }
 
+    template<typename Sink>
     static void dispatch(const nomos::rt::clap_event_union& ev,
                          int dst_ch, int xpose,
-                         nomos::rt::midi_io& midi) {
+                         Sink& sink) {
         switch (ev.header.type) {
         case CLAP_EVENT_NOTE_ON: {
             const int  ch  = dst_ch >= 0 ? dst_ch : ev.note.channel;
             const int  key = std::clamp(ev.note.key + xpose, 0, 127);
             const auto vel = static_cast<uint8_t>(
                 std::clamp(ev.note.velocity * 127.0, 0.0, 127.0));
-            midi.note_on(static_cast<uint8_t>(ch + 1),
+            sink.note_on(static_cast<uint8_t>(ch + 1),
                          static_cast<uint8_t>(key), vel);
             break;
         }
         case CLAP_EVENT_NOTE_OFF: {
             const int ch  = dst_ch >= 0 ? dst_ch : ev.note.channel;
             const int key = std::clamp(ev.note.key + xpose, 0, 127);
-            midi.note_off(static_cast<uint8_t>(ch + 1),
+            sink.note_off(static_cast<uint8_t>(ch + 1),
                           static_cast<uint8_t>(key));
             break;
         }
         case CLAP_EVENT_MIDI:
-            midi.send({ev.midi.data[0], ev.midi.data[1], ev.midi.data[2]});
+            sink.send({ev.midi.data[0], ev.midi.data[1], ev.midi.data[2]});
             break;
         default:
             break;
