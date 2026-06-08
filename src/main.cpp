@@ -7,10 +7,12 @@
 
 #include <nomos/rt/modulator_engine.hpp>
 
+#include "aion_control_thread.hpp"
 #include "audio_device.hpp"
 #include "link_peer.hpp"
 #include "midi_io.hpp"
 #include "osc_server.hpp"
+#include "routing_matrix.hpp"
 
 #include <clap/events.h>
 
@@ -43,8 +45,7 @@ int main(int argc, char *argv[]) {
   uint16_t osc_port = 9002;
   double initial_bpm = 120.0;
   double sample_rate = 48000.0;
-  uint32_t buffer_frames =
-      64; // small: hardware interrupt cadence, not processing
+  uint32_t buffer_frames = 64;
   bool no_audio = false;
   bool list_audio_devs = false;
   unsigned int audio_device_id = 0;
@@ -106,36 +107,35 @@ int main(int argc, char *argv[]) {
   std::signal(SIGTERM, on_signal);
 
   // Shared queues.
-  // param_queue: written by rt_control_thread on msg_param_set; no audio
-  // consumer
-  //              in aion — drained and discarded by the event thread.
-  // ipc_in_queue: note-on / note-off / midi-in from IPC; dispatched to MIDI hw.
-  // hw_midi_in_queue: hardware MIDI input translated to clap events by midi_io.
-  // osc_in_queue: OSC-driven note events from the osc_server.
   nomos::rt::param_queue param_queue;
   nomos::rt::input_event_queue ipc_in_queue;
   nomos::rt::input_event_queue hw_midi_in_queue;
   nomos::rt::input_event_queue osc_in_queue;
 
-  // Beat scheduler — control thread pushes to staging; event thread ticks.
+  // Beat scheduler.
   nomos::rt::event_scheduler scheduler;
 
-  // RT modulator engine — autonomous modulators initiated via IPC, run at
-  // event-loop tick rate.
+  // RT modulator engine.
   nomos::rt::modulator_engine mod_engine;
 
-  // Control thread — IPC socket, session, and common cljseq-rt message
-  // dispatch.
-  nomos::rt::rt_control_thread ctrl{nomos::rt::rt_control_thread::config{
-                                     .socket_path = socket_path,
-                                     .db_path = db_path,
-                                     .sched_staging = &scheduler.staging(),
-                                     .mod_engine = &mod_engine,
-                                 },
-                                 param_queue, ipc_in_queue};
+  // Routing matrix — controls how events flow from sources to MIDI output.
+  // Default (empty): all events pass through on their original channel.
+  // Updated at runtime via MSG-ROUTE-SET IPC frames.
+  aion::RoutingMatrix routing;
+
+  // Control thread — IPC socket, session, and common nomos-rt message dispatch.
+  // aion_control_thread extends the base to handle msg_route_set.
+  aion::aion_control_thread ctrl{
+      nomos::rt::rt_control_thread::config{
+          .socket_path   = socket_path,
+          .db_path       = db_path,
+          .sched_staging = &scheduler.staging(),
+          .mod_engine    = &mod_engine,
+      },
+      param_queue, ipc_in_queue, routing};
   ctrl.start();
 
-  // Link peer — beat-sync authority.
+  // Link peer.
   nomos::rt::link_peer link{initial_bpm};
   link.enable(true);
 
@@ -152,24 +152,19 @@ int main(int argc, char *argv[]) {
   nomos::rt::osc_server osc{osc_port, osc_in_queue};
   osc.start();
 
-  // Audio device — opened at a small buffer size purely for the hardware
-  // interrupt cadence that disciplines our clock.  When a wordclock-capable
-  // interface is present (e.g. ES-9, Scarlett) this becomes the most stable
-  // timestamp source in the room and aion can assert Link authority.  The
-  // callback does no audio processing — it just clocks the hardware interrupt.
+  // Audio device — hardware interrupt cadence for clock discipline.
   nomos::rt::audio_device audio_dev;
   if (!no_audio) {
     nomos::rt::audio_device_config audio_cfg{
-        .device_id = audio_device_id,
+        .device_id    = audio_device_id,
         .out_channels = 2,
-        .in_channels = 0,
-        .sample_rate = sample_rate,
+        .in_channels  = 0,
+        .sample_rate  = sample_rate,
         .buffer_frames = buffer_frames,
     };
     const bool opened = audio_dev.open(
         audio_cfg, [](float **out, const float *const *, uint32_t out_ch,
                       uint32_t, uint32_t nframes, double) {
-          // Zero output — no DSP processing, just hardware clock discipline.
           for (uint32_t c = 0; c < out_ch; ++c)
             if (out && out[c])
               std::fill_n(out[c], nframes, 0.0f);
@@ -184,52 +179,35 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  // Event dispatch thread — translates queued CLAP input events to MIDI output.
+  // Event dispatch thread.
   //
-  // Drains three queues:
-  //   ipc_in_queue     — note/MIDI events from the cljseq IPC connection
-  //   hw_midi_in_queue — hardware MIDI input (pass-through / merge)
+  // Sources routed through the RoutingMatrix:
+  //   ipc_in_queue     — note/MIDI events from the IPC connection
+  //   hw_midi_in_queue — hardware MIDI input
   //   osc_in_queue     — OSC-driven note events
   //
-  // param_queue is also drained here; aion has no audio consumer for params
-  // (a future routing layer will act on them).
-  //
-  // Sleep 250µs when all queues are idle — low latency without busy-spinning.
+  // Modulator outputs are routed to MIDI CC each tick (when routes are defined)
+  // and also pushed to the connected client as MSG-TICK :mods.
   std::thread event_thread{[&]() {
-    auto dispatch_event = [&](const nomos::rt::clap_event_union &ev) {
-      switch (ev.header.type) {
-      case CLAP_EVENT_NOTE_ON: {
-        const auto vel = static_cast<uint8_t>(
-            std::clamp(ev.note.velocity * 127.0, 0.0, 127.0));
-        midi.note_on(static_cast<uint8_t>(ev.note.channel + 1),
-                     static_cast<uint8_t>(ev.note.key), vel);
-        break;
-      }
-      case CLAP_EVENT_NOTE_OFF:
-        midi.note_off(static_cast<uint8_t>(ev.note.channel + 1),
-                      static_cast<uint8_t>(ev.note.key));
-        break;
-      case CLAP_EVENT_MIDI:
-        midi.send({ev.midi.data[0], ev.midi.data[1], ev.midi.data[2]});
-        break;
-      default:
-        break;
-      }
-    };
-
     int64_t last_tick_n = -1;
 
     while (g_running.load(std::memory_order_relaxed)) {
       bool did_work = false;
 
-      // Tick beat-scheduled events into ipc_in_queue before draining it.
+      // Tick beat-scheduled events.
       const double  beat   = link.beat_at_time(link.now());
       const int64_t tick_n = static_cast<int64_t>(std::floor(beat * 24.0));
-      // Tick RT modulators at block rate; capture outputs for MSG-TICK payload.
-      const float tick_rate_hz = static_cast<float>(sample_rate) / static_cast<float>(buffer_frames);
+      const float tick_rate_hz =
+          static_cast<float>(sample_rate) / static_cast<float>(buffer_frames);
+
+      // Tick RT modulators; capture outputs for MSG-TICK and mod routing.
       std::string mods_edn;
       mod_engine.tick(beat, tick_rate_hz,
           [&](const std::string& id, const nomos::rt::modulator_output& out) {
+              // Modulator → MIDI CC routing.
+              routing.route_modulator(id, out, midi);
+
+              // Accumulate for MSG-TICK payload.
               mods_edn += " :" + id + " {:cv " + std::to_string(out.cv) +
                           " :aux "   + std::to_string(out.aux)   +
                           " :gate "  + (out.gate  ? "true" : "false") +
@@ -247,24 +225,26 @@ int main(int argc, char *argv[]) {
         midi.realtime(0xF8);
         did_work = true;
       }
+
       scheduler.tick(beat, [&](const nomos::rt::clap_event_union &ev) {
         ipc_in_queue.push(ev);
         did_work = true;
       });
 
       while (auto ev = ipc_in_queue.pop()) {
-        dispatch_event(*ev);
+        routing.route_event(*ev, aion::MidiRoute::Source::ipc, midi);
         did_work = true;
       }
       while (auto ev = hw_midi_in_queue.pop()) {
-        dispatch_event(*ev);
+        routing.route_event(*ev, aion::MidiRoute::Source::midi_hw, midi);
         did_work = true;
       }
       while (auto ev = osc_in_queue.pop()) {
-        dispatch_event(*ev);
+        routing.route_event(*ev, aion::MidiRoute::Source::osc, midi);
         did_work = true;
       }
-      // Drain param events — no consumer in aion yet.
+
+      // Drain param events — no param consumer in aion (routed via mod engine).
       while (param_queue.pop()) {
         did_work = true;
       }
