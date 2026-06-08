@@ -30,8 +30,7 @@ if(DEFINED NOMOS_RT_DIR)
 else()
     FetchContent_Declare(nomos-rt
         GIT_REPOSITORY https://github.com/nomos-studio/nomos-rt.git
-        GIT_TAG        main
-        GIT_SHALLOW    TRUE)
+        GIT_TAG        0d7ef769c94334ec34d6c0f3a7a073a03b7d98e7)
 endif()
 set(NOMOS_RT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(nomos-rt)
