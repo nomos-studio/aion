@@ -123,6 +123,16 @@ int main(int argc, char *argv[]) {
   // Updated at runtime via MSG-ROUTE-SET IPC frames.
   aion::RoutingMatrix routing;
 
+  // MIDI I/O — created before the control thread so we can pass &midi into
+  // the config for direct SysEx/MTS/CC output from the control thread.
+  nomos::rt::midi_io midi;
+  nomos::rt::midi_io::list_ports();
+  if (midi_port >= 0)
+    midi.open_port(static_cast<unsigned int>(midi_port));
+  if (midi_in_port >= 0)
+    midi.open_input_port(static_cast<unsigned int>(midi_in_port),
+                         hw_midi_in_queue);
+
   // Control thread — IPC socket, session, and common nomos-rt message dispatch.
   // aion_control_thread extends the base to handle msg_route_set.
   aion::aion_control_thread ctrl{
@@ -131,6 +141,7 @@ int main(int argc, char *argv[]) {
           .db_path       = db_path,
           .sched_staging = &scheduler.staging(),
           .mod_engine    = &mod_engine,
+          .midi          = &midi,
       },
       param_queue, ipc_in_queue, routing};
   ctrl.start();
@@ -138,15 +149,6 @@ int main(int argc, char *argv[]) {
   // Link peer.
   nomos::rt::link_peer link{initial_bpm};
   link.enable(true);
-
-  // MIDI I/O.
-  nomos::rt::midi_io midi;
-  nomos::rt::midi_io::list_ports();
-  if (midi_port >= 0)
-    midi.open_port(static_cast<unsigned int>(midi_port));
-  if (midi_in_port >= 0)
-    midi.open_input_port(static_cast<unsigned int>(midi_in_port),
-                         hw_midi_in_queue);
 
   // OSC server.
   nomos::rt::osc_server osc{osc_port, osc_in_queue};
