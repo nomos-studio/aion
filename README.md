@@ -20,7 +20,9 @@ MIDI hardware · OSC peers · Ableton Link session
 
 - **Ableton Link peer** — joins the Link session as a beat-sync authority;
   small buffer sizes + a real audio device give hardware-clock discipline.
-- **MIDI I/O** — note/CC/SysEx output and hardware MIDI input via RtMidi.
+- **MIDI I/O** — note/CC/SysEx/MTS output and hardware MIDI input via RtMidi.
+  SysEx, MTS Bulk Dump, CC, pitch-bend, and channel-pressure IPC frames are
+  dispatched directly from the control thread (not via the event queue).
 - **OSC server** — UDP OSC note events routed into the event queue.
 - **RT modulator engine** — slope, slew, segment, shift-register, fractal,
   stochastic, and graph modulators; output pushed as `:mods` in MSG-TICK.
