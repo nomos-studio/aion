@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# nous pre-commit hook
+# Blocks commits that introduce secrets, hardcoded personal paths, or
+# credential files, and verifies C++ formatting via clang-format.
+# Add patterns here as new anti-patterns are discovered.
+
+set -euo pipefail
+
+FAIL=0
+
+# Colours (suppressed when not a terminal)
+if [ -t 1 ]; then
+  RED='\033[0;31m'; YELLOW='\033[1;33m'; NC='\033[0m'
+else
+  RED=''; YELLOW=''; NC=''
+fi
+
+warn()  { echo -e "${YELLOW}[pre-commit] WARNING:${NC} $*"; }
+error() { echo -e "${RED}[pre-commit] BLOCKED:${NC} $*"; FAIL=1; }
+
+# Files staged for commit (added or modified, not deleted)
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+
+if [ -z "$STAGED" ]; then
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# 1. Credential / secret file extensions
+# ---------------------------------------------------------------------------
+CRED_PATTERN='\.(env|pem|key|p12|pfx|secret|credentials|token)$'
+while IFS= read -r f; do
+  if echo "$f" | grep -qE "$CRED_PATTERN"; then
+    error "Credential file staged: $f"
+  fi
+done <<< "$STAGED"
+
+# ---------------------------------------------------------------------------
+# 2. Secret patterns in staged content
+# ---------------------------------------------------------------------------
+STAGED_DIFF=$(git diff --cached -U0)
+
+check_pattern() {
+  local desc="$1"; local pat="$2"
+  if echo "$STAGED_DIFF" | grep -qE "^\+.*${pat}"; then
+    local hits
+    hits=$(echo "$STAGED_DIFF" | grep -E "^\+.*${pat}" | grep -vE '^\+\+\+|;;\s|//\s|#\s|example|Example' || true)
+    if [ -n "$hits" ]; then
+      error "Possible $desc detected in staged diff:"
+      echo "$hits" | head -5 | sed 's/^/    /'
+    fi
+  fi
+}
+
+check_pattern "AWS access key"        "AKIA[0-9A-Z]{16}"
+check_pattern "API key assignment"    "(api[_-]?key|api[_-]?token|secret[_-]?key|access[_-]?token)\s*[=:]\s*['\"'][^'\"']{8,}"
+check_pattern "PEM private key"       "-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY"
+check_pattern "hardcoded password"    "password\s*=\s*['\"'][^'\"']{4,}"
+check_pattern "GCP API key"           "AIza[0-9A-Za-z_-]{35}"
+
+while IFS= read -r f; do
+  if echo "$f" | grep -qE '\.(env|conf|config|properties|yml|yaml)$'; then
+    if git diff --cached -U0 -- "$f" | grep -qE '^\+[^+].*[0-9a-fA-F]{32,}'; then
+      warn "High-entropy string in config file: $f (review manually)"
+    fi
+  fi
+done <<< "$STAGED"
+
+# ---------------------------------------------------------------------------
+# 3. Hardcoded absolute personal paths (not in docstrings/comments)
+# ---------------------------------------------------------------------------
+PERSONAL_PATH_HITS=$(echo "$STAGED_DIFF" | grep -E '^\+.*/(Users|home)/[a-zA-Z0-9_-]+/' \
+  | grep -vE '^\+\+\+|;;\s|//\s|#\s|/Users/me/|example|Example' || true)
+if [ -n "$PERSONAL_PATH_HITS" ]; then
+  error "Hardcoded personal path in staged diff:"
+  echo "$PERSONAL_PATH_HITS" | head -5 | sed 's/^/    /'
+fi
+
+# ---------------------------------------------------------------------------
+# 4. C++ formatting (clang-format)
+# ---------------------------------------------------------------------------
+CPP_FILES=$(echo "$STAGED" | grep -E '\.(cpp|hpp|h)$' || true)
+if [ -n "$CPP_FILES" ]; then
+  if command -v clang-format &>/dev/null; then
+    while IFS= read -r f; do
+      if ! clang-format --dry-run --Werror "$f" 2>/dev/null; then
+        error "clang-format: $f needs formatting"
+        echo "    Run: clang-format -i $f"
+      fi
+    done <<< "$CPP_FILES"
+  else
+    warn "clang-format not found — skipping format check (install LLVM)"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 5. Result
+# ---------------------------------------------------------------------------
+if [ "$FAIL" -eq 1 ]; then
+  echo ""
+  echo -e "${RED}Commit blocked.${NC} Fix the issues above, then re-stage and commit."
+  echo "To skip this check in an emergency: git commit --no-verify"
+  exit 1
+fi
+
+exit 0
