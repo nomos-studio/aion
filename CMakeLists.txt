@@ -8,6 +8,7 @@ project(aion
     LANGUAGES C CXX)
 
 include(FetchContent)
+include(GNUInstallDirs)
 
 set(FETCHCONTENT_UPDATES_DISCONNECTED ON CACHE BOOL
     "Skip network fetch if already populated")
@@ -61,6 +62,14 @@ set_target_properties(aion PROPERTIES
 target_compile_options(aion PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra -Wpedantic -Werror>
     $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
+)
+
+# ---------------------------------------------------------------------------
+# Install
+# ---------------------------------------------------------------------------
+
+install(TARGETS aion
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
 # ---------------------------------------------------------------------------

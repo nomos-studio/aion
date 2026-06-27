@@ -1,0 +1,81 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "FETCHCONTENT_UPDATES_DISCONNECTED": "ON",
+        "NOMOS_RT_DIR": "${sourceDir}/../nomos-rt"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug (local nomos-rt)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "AION_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release (local nomos-rt)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/../../.local/nomos-studio"
+      }
+    },
+    {
+      "name": "release-fetch",
+      "displayName": "Release (fetch nomos-rt from git)",
+      "binaryDir": "${sourceDir}/build/release-fetch",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "FETCHCONTENT_UPDATES_DISCONNECTED": "ON",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/../../.local/nomos-studio"
+      }
+    },
+    {
+      "name": "ci",
+      "displayName": "CI (fetch nomos-rt from git, tests enabled)",
+      "description": "Used by GitHub Actions. Fetches nomos-rt via FetchContent; no local path assumed.",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "AION_BUILD_TESTS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug",
+      "jobs": 0
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "jobs": 0
+    },
+    {
+      "name": "ci",
+      "configurePreset": "ci",
+      "jobs": 0
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "ci",
+      "configurePreset": "ci",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}
