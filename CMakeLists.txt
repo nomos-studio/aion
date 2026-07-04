@@ -107,3 +107,18 @@ if(AION_BUILD_TESTS)
 
     catch_discover_tests(aion-tests)
 endif()
+
+# REUSE licence compliance target
+find_program(REUSE_EXECUTABLE reuse)
+if(REUSE_EXECUTABLE)
+    add_custom_target(lint-reuse
+        COMMAND ${REUSE_EXECUTABLE} lint
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Checking REUSE compliance"
+        VERBATIM
+    )
+    add_test(NAME reuse-lint
+        COMMAND ${REUSE_EXECUTABLE} lint
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+endif()

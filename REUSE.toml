@@ -1,0 +1,18 @@
+version = 1
+SPDX-PackageName = "aion"
+SPDX-PackageSupplier = "rodgert@twrodgers.com"
+SPDX-PackageDownloadLocation = "https://github.com/nomos-studio/aion"
+
+# Authored source — SPDX-License-Identifier already inline; aggregate adds copyright.
+[[annotations]]
+path = ["src/**", "include/**", "tests/**", "scripts/**", "CMakeLists.txt"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2025-2026 nomos-studio contributors"
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+# Project metadata and config files
+[[annotations]]
+path = ["README.md", "CHANGELOG.md", "CMakePresets.json", ".gitignore", ".github/**"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2025-2026 nomos-studio contributors"
+SPDX-License-Identifier = "GPL-2.0-or-later"
