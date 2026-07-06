@@ -9,6 +9,7 @@ project(aion
 
 include(FetchContent)
 include(GNUInstallDirs)
+include(cmake/Sanitizers.cmake)
 
 set(FETCHCONTENT_UPDATES_DISCONNECTED ON CACHE BOOL
     "Skip network fetch if already populated")
@@ -51,6 +52,7 @@ add_executable(aion
 target_link_libraries(aion PRIVATE
     nomos::rt
     nomos::rt-exe-headers
+    sanitizers::sanitizers
 )
 
 set_target_properties(aion PROPERTIES
@@ -95,6 +97,7 @@ if(AION_BUILD_TESTS)
             nomos::rt
             nomos::rt-exe-headers
             Catch2::Catch2WithMain
+            sanitizers::sanitizers
     )
 
     target_include_directories(aion-tests PRIVATE src)
