@@ -47,24 +47,24 @@
         "CMAKE_BUILD_TYPE": "Release",
         "AION_BUILD_TESTS": "ON"
       }
+    },
+    {
+      "name": "sanitize",
+      "displayName": "Sanitize (ASan + UBSan)",
+      "description": "Debug build with AddressSanitizer and UndefinedBehaviorSanitizer — gate 2 of CI",
+      "binaryDir": "${sourceDir}/build-san",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "AION_BUILD_TESTS": "ON",
+        "NOMOS_SANITIZE": "address,undefined"
+      }
     }
   ],
   "buildPresets": [
-    {
-      "name": "debug",
-      "configurePreset": "debug",
-      "jobs": 0
-    },
-    {
-      "name": "release",
-      "configurePreset": "release",
-      "jobs": 0
-    },
-    {
-      "name": "ci",
-      "configurePreset": "ci",
-      "jobs": 0
-    }
+    { "name": "debug",    "configurePreset": "debug",    "jobs": 0 },
+    { "name": "release",  "configurePreset": "release",  "jobs": 0 },
+    { "name": "ci",       "configurePreset": "ci",       "jobs": 0 },
+    { "name": "sanitize", "configurePreset": "sanitize", "jobs": 0 }
   ],
   "testPresets": [
     {
@@ -75,6 +75,11 @@
     {
       "name": "ci",
       "configurePreset": "ci",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "sanitize",
+      "configurePreset": "sanitize",
       "output": { "outputOnFailure": true }
     }
   ]

@@ -1,46 +1,6 @@
+# SPDX-FileCopyrightText: 2026 nomos-studio contributors
+#
 # SPDX-License-Identifier: GPL-2.0-or-later
-# cmake/Sanitizers.cmake — AddressSanitizer, ThreadSanitizer, UndefinedBehaviorSanitizer
-#
-# Usage — executables and test runners
-# -------------------------------------
-#   target_link_libraries(my-test PRIVATE sanitizers::sanitizers)
-#
-# Applies compile-time instrumentation AND links the sanitizer runtime.  Use
-# this for all executables and test binaries.
-#
-# Usage — installed/exported static libraries
-# --------------------------------------------
-#   nomos_sanitize_target(my-lib)
-#
-# Applies only compile-time instrumentation.  Does NOT create a dependency on
-# sanitizers::sanitizers so the target can be exported without errors.
-# The final executable that links the library is responsible for linking the
-# sanitizer runtime via sanitizers::sanitizers.
-#
-# Configure
-# ---------
-#   cmake -DNOMOS_SANITIZE=address,undefined ..   # ASan + UBSan  (most common)
-#   cmake -DNOMOS_SANITIZE=thread,undefined ..    # TSan + UBSan
-#   cmake -DNOMOS_SANITIZE=undefined ..           # UBSan only
-#   cmake -DNOMOS_SANITIZE=address ..             # ASan only
-#
-# Notes
-# -----
-# - 'address' and 'thread' are mutually exclusive; CMake will error if both
-#   are requested.
-# - UBSan uses -fno-sanitize-recover=undefined so violations abort the process
-#   rather than printing a warning and continuing.
-# - -fno-omit-frame-pointer is added when ASan or TSan is active so that stack
-#   traces are readable without debug info.
-# - MSVC and non-GCC/Clang toolchains: a no-op sanitizers::sanitizers target is
-#   created so consumers compile cleanly; a warning is emitted.
-# - FetchContent sub-projects: if sanitizers::sanitizers already exists when
-#   this file is included (because a parent project created it), the file
-#   returns immediately — the parent's settings propagate through the build.
-# - TSan on macOS requires MallocMaxMagazines=0 in the test environment;
-#   CTest does not set this automatically.  Add it per-test with
-#   set_tests_properties(<name> PROPERTIES ENVIRONMENT
-#       "MallocMaxMagazines=0;TSAN_OPTIONS=halt_on_error=1").
 
 set(NOMOS_SANITIZE "" CACHE STRING
     "Comma-separated sanitizers to enable: address, thread, undefined")
