@@ -113,7 +113,7 @@ endif()
 
 # REUSE licence compliance target
 find_program(REUSE_EXECUTABLE reuse)
-if(REUSE_EXECUTABLE)
+if(REUSE_EXECUTABLE AND NOT TARGET lint-reuse)
     add_custom_target(lint-reuse
         COMMAND ${REUSE_EXECUTABLE} lint
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
