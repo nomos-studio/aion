@@ -135,15 +135,14 @@ int main(int argc, char *argv[]) {
 
   // Control thread — IPC socket, session, and common nomos-rt message dispatch.
   // aion_control_thread extends the base to handle msg_route_set.
-  aion::aion_control_thread ctrl{
-      nomos::rt::rt_control_thread::config{
-          .socket_path   = socket_path,
-          .db_path       = db_path,
-          .sched_staging = &scheduler.staging(),
-          .mod_engine    = &mod_engine,
-          .midi          = &midi,
-      },
-      param_queue, ipc_in_queue, routing};
+  aion::aion_control_thread ctrl{nomos::rt::rt_control_thread::config{
+                                     .socket_path = socket_path,
+                                     .db_path = db_path,
+                                     .sched_staging = &scheduler.staging(),
+                                     .mod_engine = &mod_engine,
+                                     .midi = &midi,
+                                 },
+                                 param_queue, ipc_in_queue, routing};
   ctrl.start();
 
   // Link peer.
@@ -158,10 +157,10 @@ int main(int argc, char *argv[]) {
   nomos::rt::audio_device audio_dev;
   if (!no_audio) {
     nomos::rt::audio_device_config audio_cfg{
-        .device_id    = audio_device_id,
+        .device_id = audio_device_id,
         .out_channels = 2,
-        .in_channels  = 0,
-        .sample_rate  = sample_rate,
+        .in_channels = 0,
+        .sample_rate = sample_rate,
         .buffer_frames = buffer_frames,
     };
     const bool opened = audio_dev.open(
@@ -192,34 +191,36 @@ int main(int argc, char *argv[]) {
   // and also pushed to the connected client as MSG-TICK :mods.
   std::thread event_thread{[&]() {
     int64_t last_tick_n = -1;
+    mod_engine.pre_warm_reader();
 
     while (g_running.load(std::memory_order_relaxed)) {
       bool did_work = false;
 
       // Tick beat-scheduled events.
-      const double  beat   = link.beat_at_time(link.now());
+      const double beat = link.beat_at_time(link.now());
       const int64_t tick_n = static_cast<int64_t>(std::floor(beat * 24.0));
       const float tick_rate_hz =
           static_cast<float>(sample_rate) / static_cast<float>(buffer_frames);
 
       // Tick RT modulators; capture outputs for MSG-TICK and mod routing.
       std::string mods_edn;
-      mod_engine.tick(beat, tick_rate_hz,
-          [&](const std::string& id, const nomos::rt::modulator_output& out) {
-              // Modulator → MIDI CC routing.
-              routing.route_modulator(id, out, midi);
+      mod_engine.tick(
+          beat, tick_rate_hz,
+          [&](const std::string &id, const nomos::rt::modulator_output &out) {
+            // Modulator → MIDI CC routing.
+            routing.route_modulator(id, out, midi);
 
-              // Accumulate for MSG-TICK payload.
-              mods_edn += " :" + id + " {:cv " + std::to_string(out.cv) +
-                          " :aux "   + std::to_string(out.aux)   +
-                          " :gate "  + (out.gate  ? "true" : "false") +
-                          " :gate2 " + (out.gate2 ? "true" : "false") + "}";
+            // Accumulate for MSG-TICK payload.
+            mods_edn += " :" + id + " {:cv " + std::to_string(out.cv) +
+                        " :aux " + std::to_string(out.aux) + " :gate " +
+                        (out.gate ? "true" : "false") + " :gate2 " +
+                        (out.gate2 ? "true" : "false") + "}";
           });
 
       if (tick_n > last_tick_n) {
         last_tick_n = tick_n;
-        std::string frame = "{:beat " + std::to_string(beat) +
-                            " :tick-n " + std::to_string(tick_n);
+        std::string frame = "{:beat " + std::to_string(beat) + " :tick-n " +
+                            std::to_string(tick_n);
         if (!mods_edn.empty())
           frame += " :mods {" + mods_edn + "}";
         frame += "}";
