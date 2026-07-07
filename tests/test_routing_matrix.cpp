@@ -103,7 +103,7 @@ TEST_CASE("RoutingMatrix: apply_edn with empty map resets routes", "[routing]") 
 TEST_CASE("RoutingMatrix: apply_edn ignores malformed EDN gracefully", "[routing]") {
     RoutingMatrix rm;
     rm.apply_edn("this is not edn");
-    REQUIRE(rm.empty()); // malformed → no change
+    REQUIRE(rm.empty());     // malformed → no change
     rm.apply_edn("[1 2 3]"); // not a map
     REQUIRE(rm.empty());
 }
@@ -116,9 +116,9 @@ TEST_CASE("RoutingMatrix: empty matrix passes all sources through", "[routing]")
     RoutingMatrix rm;
     CaptureSink   sink;
 
-    rm.route_event(make_note_on(0, 60, 0.8), MidiRoute::Source::ipc,     sink);
+    rm.route_event(make_note_on(0, 60, 0.8), MidiRoute::Source::ipc, sink);
     rm.route_event(make_note_on(0, 62, 0.5), MidiRoute::Source::midi_hw, sink);
-    rm.route_event(make_note_on(0, 64, 0.6), MidiRoute::Source::osc,     sink);
+    rm.route_event(make_note_on(0, 64, 0.6), MidiRoute::Source::osc, sink);
 
     REQUIRE(sink.events.size() == 3);
     for (const auto& e : sink.events)
@@ -130,9 +130,9 @@ TEST_CASE("RoutingMatrix: route filters by source", "[routing]") {
     rm.apply_edn(R"({:midi-routes [{:src :ipc :src-ch -1 :dst-ch -1 :xpose 0}]})");
     CaptureSink sink;
 
-    rm.route_event(make_note_on(0, 60, 0.8), MidiRoute::Source::ipc,     sink);
+    rm.route_event(make_note_on(0, 60, 0.8), MidiRoute::Source::ipc, sink);
     rm.route_event(make_note_on(0, 60, 0.8), MidiRoute::Source::midi_hw, sink);
-    rm.route_event(make_note_on(0, 60, 0.8), MidiRoute::Source::osc,     sink);
+    rm.route_event(make_note_on(0, 60, 0.8), MidiRoute::Source::osc, sink);
 
     // Only the ipc event should pass through
     REQUIRE(sink.events.size() == 1);
@@ -213,9 +213,9 @@ TEST_CASE("RoutingMatrix: mod route maps cv to CC", "[routing]") {
 
     REQUIRE(sink.events.size() == 1);
     REQUIRE(sink.events[0].kind == CaptureSink::Event::Kind::CC);
-    REQUIRE(sink.events[0].a == 1);   // ch 0 → cc channel 1
-    REQUIRE(sink.events[0].b == 74);  // cc number
-    REQUIRE(sink.events[0].c == 64);  // round(0.5 * 127) = round(63.5) = 64
+    REQUIRE(sink.events[0].a == 1);  // ch 0 → cc channel 1
+    REQUIRE(sink.events[0].b == 74); // cc number
+    REQUIRE(sink.events[0].c == 64); // round(0.5 * 127) = round(63.5) = 64
 }
 
 TEST_CASE("RoutingMatrix: mod route dirty-tracks CC — no redundant sends", "[routing]") {

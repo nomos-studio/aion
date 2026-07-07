@@ -20,22 +20,17 @@ namespace aion {
 
 class aion_control_thread final : public nomos::rt::rt_control_thread {
   public:
-    aion_control_thread(nomos::rt::rt_control_thread::config cfg,
-                        nomos::rt::param_queue&              queue,
-                        nomos::rt::input_event_queue&        in_queue,
-                        RoutingMatrix&                       matrix)
-        : nomos::rt::rt_control_thread{std::move(cfg), queue, in_queue}
-        , matrix_{matrix}
-    {}
+    aion_control_thread(nomos::rt::rt_control_thread::config cfg, nomos::rt::param_queue& queue,
+                        nomos::rt::input_event_queue& in_queue, RoutingMatrix& matrix)
+        : nomos::rt::rt_control_thread{std::move(cfg), queue, in_queue}, matrix_{matrix} {}
 
   protected:
-    void dispatch_extension(int /*conn_fd*/,
-                            const nomos::rt::ipc::message& msg,
+    void dispatch_extension(int /*conn_fd*/, const nomos::rt::ipc::message& msg,
                             std::optional<nomos::rt::session>& /*sess*/) override {
-        if (msg.type() != nomos::rt::ipc::msg_route_set) return;
-        const std::string_view payload{
-            reinterpret_cast<const char*>(msg.payload.data()),
-            msg.payload.size()};
+        if (msg.type() != nomos::rt::ipc::msg_route_set)
+            return;
+        const std::string_view payload{reinterpret_cast<const char*>(msg.payload.data()),
+                                       msg.payload.size()};
         matrix_.apply_edn(payload);
     }
 
