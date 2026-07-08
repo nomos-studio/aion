@@ -32,7 +32,7 @@ if(DEFINED NOMOS_RT_DIR)
 else()
     FetchContent_Declare(nomos-rt
         GIT_REPOSITORY https://github.com/nomos-studio/nomos-rt.git
-        GIT_TAG        0d7ef769c94334ec34d6c0f3a7a073a03b7d98e7)
+        GIT_TAG        7df302efb2f580a836407fef9f079c4ecc5c3535)
 endif()
 set(NOMOS_RT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(nomos-rt)
@@ -64,6 +64,10 @@ set_target_properties(aion PROPERTIES
 target_compile_options(aion PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra -Wpedantic -Werror>
     $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
+    # clang-18 and gcc-14 warn about omitted fields in C++20 designated
+    # initialisers even when those fields have default member initialisers.
+    # This is a false positive for valid C++20 aggregate initialisation.
+    $<$<CXX_COMPILER_ID:GNU,Clang>:-Wno-missing-field-initializers>
 )
 
 # ---------------------------------------------------------------------------

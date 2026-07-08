@@ -40,6 +40,7 @@
 #include <clap/events.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <mutex>
 #include <string>
