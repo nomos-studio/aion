@@ -94,6 +94,7 @@ if(AION_BUILD_TESTS)
 
     add_executable(aion-tests
         tests/test_routing_matrix.cpp
+        tests/test_midi_diag.cpp
     )
 
     target_link_libraries(aion-tests

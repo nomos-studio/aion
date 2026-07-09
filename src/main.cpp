@@ -145,6 +145,21 @@ int main(int argc, char* argv[]) {
                                    param_queue, ipc_in_queue, routing};
     ctrl.start();
 
+    // Diagnostic tap: push a MSG-MIDI-DIAG frame back to nous for every MIDI
+    // send, before the bytes reach RtMidi.  Fires even when no port is open —
+    // no hardware needed for CI verification.  Set here, before the event
+    // thread starts, so there is no data race on send_cb_.
+    midi.set_send_callback([&](const std::vector<uint8_t>& bytes) {
+        std::string payload = "{:bytes [";
+        for (std::size_t i = 0; i < bytes.size(); ++i) {
+            if (i > 0)
+                payload += ' ';
+            payload += std::to_string(static_cast<unsigned>(bytes[i]));
+        }
+        payload += "]}";
+        ctrl.push_frame(nomos::rt::ipc::msg_midi_diag, payload);
+    });
+
     // Link peer.
     nomos::rt::link_peer link{initial_bpm};
     link.enable(true);
