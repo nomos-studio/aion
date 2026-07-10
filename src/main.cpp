@@ -16,20 +16,18 @@
 
 #include <clap/events.h>
 
+#include <nomos/rt/signal_handlers.hpp>
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
-#include <csignal>
 #include <cstdlib>
 #include <iostream>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
-
-#include <pthread.h>
-#include <signal.h>
 
 namespace aion {
 std::string_view version() noexcept;
@@ -39,34 +37,6 @@ namespace {
 std::atomic<bool> g_running{true};
 void              on_signal(int) noexcept {
     g_running.store(false, std::memory_order_relaxed);
-}
-
-// Install signal handlers via sigaction (not std::signal).
-// SA_RESTART is intentionally absent: blocking syscalls (accept, read) return
-// EINTR on signal delivery so threads can re-check g_running and exit cleanly.
-void install_signal_handlers() noexcept {
-    struct sigaction sa {};
-    sa.sa_handler = on_signal;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    sigaction(SIGINT, &sa, nullptr);
-    sigaction(SIGTERM, &sa, nullptr);
-
-    // SIGPIPE: write to a closed client returns EPIPE rather than killing the process.
-    struct sigaction sa_pipe {};
-    sa_pipe.sa_handler = SIG_IGN;
-    sigemptyset(&sa_pipe.sa_mask);
-    sa_pipe.sa_flags = 0;
-    sigaction(SIGPIPE, &sa_pipe, nullptr);
-}
-
-// Block all signals on the calling thread.  Call from RT threads (audio
-// callback, event dispatch) so that SIGTERM/SIGINT are only delivered to
-// the main thread, which owns the g_running flag and the shutdown sequence.
-void block_signals_on_this_thread() noexcept {
-    sigset_t all;
-    sigfillset(&all);
-    pthread_sigmask(SIG_BLOCK, &all, nullptr);
 }
 } // namespace
 
@@ -135,7 +105,7 @@ int main(int argc, char* argv[]) {
         return EXIT_SUCCESS;
     }
 
-    install_signal_handlers();
+    nomos::rt::install_signal_handlers(on_signal);
 
     // Shared queues.
     nomos::rt::param_queue       param_queue;
@@ -235,7 +205,7 @@ int main(int argc, char* argv[]) {
     // Modulator outputs are routed to MIDI CC each tick (when routes are defined)
     // and also pushed to the connected client as MSG-TICK :mods.
     std::thread event_thread{[&]() {
-        block_signals_on_this_thread(); // SIGTERM handled by main thread only
+        nomos::rt::block_signals_on_this_thread(); // SIGTERM handled by main thread only
         int64_t last_tick_n = -1;
         mod_engine.pre_warm_reader();
 
