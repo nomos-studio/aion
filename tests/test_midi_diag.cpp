@@ -2,9 +2,11 @@
 //
 // midi_io send-callback (diagnostic tap) unit tests.
 //
-// Verifies that midi_io fires send_cb_ with the correct raw MIDI bytes for
-// each message type, without opening a hardware port.  These tests form the
-// C++ side of the CI-runnable MIDI verification path.
+// The tap fires only AFTER a successful rtmidi handoff — it is proof of
+// delivery, not just that bytes were built.  Tests use a virtual MIDI port
+// (no hardware required) so that is_open() is true and sendMessage() is
+// exercised.  One negative test confirms the tap is silent when no port is
+// open.
 
 #include "midi_io.hpp"
 
@@ -30,22 +32,44 @@ struct ByteCapture {
 };
 
 // ---------------------------------------------------------------------------
+// RAII virtual-port fixture — opens a virtual port, closes on destruction.
+// Virtual ports require no hardware; they are sufficient for CI.
+// ---------------------------------------------------------------------------
+
+struct VirtualPort {
+    midi_io& midi;
+    bool     ok;
+
+    explicit VirtualPort(midi_io& m, const char* name = "aion-test")
+        : midi(m), ok(m.open_virtual_port(name)) {}
+
+    ~VirtualPort() {
+        if (ok)
+            midi.close();
+    }
+};
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-TEST_CASE("midi_io diagnostic tap: fires even with no port open", "[midi_diag]") {
+TEST_CASE("midi_io diagnostic tap: does NOT fire when no port is open", "[midi_diag]") {
+    // Tap is proof of delivery — it fires only after a successful rtmidi handoff.
+    // Without an open port, send() returns early and the tap is never called.
     ByteCapture cap;
     midi_io     midi;
     midi.set_send_callback(cap.callback());
 
     REQUIRE_FALSE(midi.is_open());
     midi.note_on(1, 60, 100);
-    REQUIRE(cap.frames.size() == 1);
+    REQUIRE(cap.frames.empty());
 }
 
 TEST_CASE("midi_io diagnostic tap: note-on bytes are correct", "[midi_diag]") {
     ByteCapture cap;
     midi_io     midi;
+    VirtualPort port{midi};
+    REQUIRE(port.ok);
     midi.set_send_callback(cap.callback());
 
     // channel=1, note=60 (C4), vel=102
@@ -59,6 +83,8 @@ TEST_CASE("midi_io diagnostic tap: note-on bytes are correct", "[midi_diag]") {
 TEST_CASE("midi_io diagnostic tap: note-off bytes are correct", "[midi_diag]") {
     ByteCapture cap;
     midi_io     midi;
+    VirtualPort port{midi};
+    REQUIRE(port.ok);
     midi.set_send_callback(cap.callback());
 
     midi.note_off(1, 60);
@@ -70,6 +96,8 @@ TEST_CASE("midi_io diagnostic tap: note-off bytes are correct", "[midi_diag]") {
 TEST_CASE("midi_io diagnostic tap: CC bytes are correct", "[midi_diag]") {
     ByteCapture cap;
     midi_io     midi;
+    VirtualPort port{midi};
+    REQUIRE(port.ok);
     midi.set_send_callback(cap.callback());
 
     midi.cc(1, 74, 64);
@@ -81,6 +109,8 @@ TEST_CASE("midi_io diagnostic tap: CC bytes are correct", "[midi_diag]") {
 TEST_CASE("midi_io diagnostic tap: channel encoding is 1-indexed", "[midi_diag]") {
     ByteCapture cap;
     midi_io     midi;
+    VirtualPort port{midi};
+    REQUIRE(port.ok);
     midi.set_send_callback(cap.callback());
 
     // channel=3 → ch=(3-1)&0x0F=2 → status=0x90|2=0x92
@@ -94,6 +124,8 @@ TEST_CASE("midi_io diagnostic tap: channel encoding is 1-indexed", "[midi_diag]"
 TEST_CASE("midi_io diagnostic tap: multiple sends accumulate in order", "[midi_diag]") {
     ByteCapture cap;
     midi_io     midi;
+    VirtualPort port{midi};
+    REQUIRE(port.ok);
     midi.set_send_callback(cap.callback());
 
     midi.note_on(1, 60, 100);
@@ -116,6 +148,8 @@ TEST_CASE("midi_io diagnostic tap: velocity 0.8 from nous maps to byte 101 via r
     // 0.8 * 127 = 101.6 → truncated to 101 (static_cast, not round)
     ByteCapture cap;
     midi_io     midi;
+    VirtualPort port{midi};
+    REQUIRE(port.ok);
     midi.set_send_callback(cap.callback());
 
     // Simulate what routing_matrix::dispatch does for vel=0.8:

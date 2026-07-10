@@ -106,6 +106,7 @@ int main(int argc, char* argv[]) {
 
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
+    std::signal(SIGPIPE, SIG_IGN); // write to closed peer returns EPIPE, not death
 
     // Shared queues.
     nomos::rt::param_queue       param_queue;
