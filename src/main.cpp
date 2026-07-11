@@ -2,6 +2,7 @@
 
 #include <nomos/rt/common_args.hpp>
 #include <nomos/rt/event_scheduler.hpp>
+#include <nomos/rt/heartbeat.hpp>
 #include <nomos/rt/input_event.hpp>
 #include <nomos/rt/modulator_engine.hpp>
 #include <nomos/rt/rt_control_thread.hpp>
@@ -70,6 +71,7 @@ int main(int argc, char* argv[]) {
     }
 
     nomos::rt::install_signal_handlers(on_signal);
+    std::thread heartbeat_thread = nomos::rt::start_heartbeat_thread(args.heartbeat_ms, g_running);
 
     // Shared queues.
     nomos::rt::param_queue       param_queue;
@@ -223,6 +225,8 @@ int main(int argc, char* argv[]) {
     osc.stop();
     ctrl.stop();
     event_thread.join();
+    if (heartbeat_thread.joinable())
+        heartbeat_thread.join();
     midi.close();
     link.enable(false);
 
